@@ -55,9 +55,13 @@ router.post('/register', async (req, res) => {
       [name.trim(), email.toLowerCase().trim(), hash]
     );
 
-    const user = { id: result.insertId, name, email, is_admin: 0 };
-    const token = signToken(user);
-    res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, is_admin: false } });
+   const user = { id: result.insertId, name: name.trim(), email: email.toLowerCase().trim() };
+const emailResult = await dispatchVerificationEmail(user);
+
+res.status(201).json({
+  message: 'Pendaftaran berhasil! Silakan cek email Anda untuk memverifikasi akun sebelum bisa masuk.',
+  email_sent: emailResult.sent,
+});
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ error: 'Gagal mendaftar. Coba lagi nanti.' });
@@ -82,7 +86,19 @@ router.post('/login', async (req, res) => {
     if (!match) {
       return res.status(401).json({ error: 'Email atau password salah.' });
     }
+const match = await bcrypt.compare(password, user.password_hash);
+if (!match) {
+  return res.status(401).json({ error: 'Email atau password salah.' });
+}
 
+if (!user.is_verified) {
+  return res.status(403).json({
+    error: 'Email Anda belum diverifikasi. Silakan cek kotak masuk (atau folder spam) untuk link verifikasi.',
+    needs_verification: true,
+  });
+}
+
+const token = signToken(user);
     const token = signToken(user);
     res.json({
       token,
@@ -91,6 +107,69 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Gagal masuk. Coba lagi nanti.' });
+  }
+});
+// GET /api/auth/verify-email?token=... — dipanggil saat pengguna klik link di email
+router.get('/verify-email', async (req, res) => {
+  try {
+    const { token } = req.query;
+    if (!token) return res.status(400).json({ error: 'Token verifikasi tidak ditemukan.' });
+
+    const [rows] = await pool.query(
+      'SELECT * FROM users WHERE verification_token = ?',
+      [token]
+    );
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Link verifikasi tidak valid atau sudah pernah dipakai.' });
+    }
+    const user = rows[0];
+
+    if (user.is_verified) {
+      return res.json({ message: 'Email Anda sudah terverifikasi sebelumnya. Silakan masuk.' });
+    }
+
+    if (!user.verification_expires || new Date(user.verification_expires) < new Date()) {
+      return res.status(400).json({
+        error: 'Link verifikasi sudah kedaluwarsa. Silakan minta link verifikasi baru.',
+        expired: true,
+      });
+    }
+
+    await pool.query(
+      'UPDATE users SET is_verified = 1, verification_token = NULL, verification_expires = NULL WHERE id = ?',
+      [user.id]
+    );
+
+    res.json({ message: 'Email berhasil diverifikasi! Silakan masuk ke akun Anda.' });
+  } catch (err) {
+    console.error('Verify email error:', err);
+    res.status(500).json({ error: 'Gagal memverifikasi email. Coba lagi nanti.' });
+  }
+});
+
+// POST /api/auth/resend-verification — kirim ulang email verifikasi
+router.post('/resend-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email wajib diisi.' });
+
+    const genericMessage = {
+      message: 'Jika email tersebut terdaftar dan belum diverifikasi, kami sudah mengirim ulang link verifikasi.',
+    };
+
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    if (rows.length === 0) return res.json(genericMessage);
+
+    const user = rows[0];
+    if (user.is_verified) {
+      return res.json({ message: 'Email ini sudah terverifikasi. Silakan langsung masuk.' });
+    }
+
+    await dispatchVerificationEmail(user);
+    res.json(genericMessage);
+  } catch (err) {
+    console.error('Resend verification error:', err);
+    res.status(500).json({ error: 'Gagal mengirim ulang email verifikasi.' });
   }
 });
 
