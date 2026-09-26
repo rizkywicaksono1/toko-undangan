@@ -34,37 +34,39 @@ async function dispatchVerificationEmail(user) {
 }
 
 // POST /api/auth/register
-router.post('/register', async (req, res) => {
+router.post('/login', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Nama, email, dan password wajib diisi.' });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password minimal 6 karakter.' });
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email dan password wajib diisi.' });
     }
 
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email.toLowerCase().trim()]);
-    if (existing.length > 0) {
-      return res.status(409).json({ error: 'Email sudah terdaftar. Silakan masuk.' });
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    if (rows.length === 0) {
+      return res.status(401).json({ error: 'Email atau password salah.' });
     }
 
-    const hash = await bcrypt.hash(password, 10);
-    const [result] = await pool.query(
-      'INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)',
-      [name.trim(), email.toLowerCase().trim(), hash]
-    );
+    const user = rows[0];
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({ error: 'Email atau password salah.' });
+    }
 
-   const user = { id: result.insertId, name: name.trim(), email: email.toLowerCase().trim() };
-const emailResult = await dispatchVerificationEmail(user);
+    if (!user.is_verified) {
+      return res.status(403).json({
+        error: 'Email Anda belum diverifikasi. Silakan cek kotak masuk (atau folder spam) untuk link verifikasi.',
+        needs_verification: true,
+      });
+    }
 
-res.status(201).json({
-  message: 'Pendaftaran berhasil! Silakan cek email Anda untuk memverifikasi akun sebelum bisa masuk.',
-  email_sent: emailResult.sent,
-});
+    const token = signToken(user);
+    res.json({
+      token,
+      user: { id: user.id, name: user.name, email: user.email, is_admin: !!user.is_admin },
+    });
   } catch (err) {
-    console.error('Register error:', err);
-    res.status(500).json({ error: 'Gagal mendaftar. Coba lagi nanti.' });
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Gagal masuk. Coba lagi nanti.' });
   }
 });
 
