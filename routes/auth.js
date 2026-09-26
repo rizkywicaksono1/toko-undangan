@@ -1,10 +1,12 @@
 // routes/auth.js — registrasi, login, profil pengguna
+// routes/auth.js — registrasi, login, login Google, verifikasi email, profil pengguna
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const pool = require('../db');
 const { requireAuth } = require('../middleware/auth');
-
+const { sendVerificationEmail } = require('../utils/mailer');
 const router = express.Router();
 
 function signToken(user) {
@@ -13,6 +15,22 @@ function signToken(user) {
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
+}
+function generateVerificationToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+async function dispatchVerificationEmail(user) {
+  const token = generateVerificationToken();
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // berlaku 24 jam
+
+  await pool.query(
+    'UPDATE users SET verification_token = ?, verification_expires = ? WHERE id = ?',
+    [token, expires, user.id]
+  );
+
+  const verifyUrl = `${process.env.FRONTEND_URL}/verifikasi-email?token=${token}`;
+  return sendVerificationEmail(user.email, user.name, verifyUrl);
 }
 
 // POST /api/auth/register
