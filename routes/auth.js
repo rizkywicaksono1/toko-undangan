@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const pool = require('../db');
+const { sendOtpEmail } = require('../utils/mailer');
 const { requireAuth } = require('../middleware/auth');
 const { sendVerificationEmail } = require('../utils/mailer');
 
