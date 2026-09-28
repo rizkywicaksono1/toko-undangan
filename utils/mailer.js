@@ -5,38 +5,43 @@ require('dotenv').config();
 let transporter = null;
 
 const getTransporter = () => {
+  if (transporter) {
+    return transporter;
+  }
+
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
 
   if (!user || !pass) {
-    throw new Error('Kredensial SMTP_USER atau SMTP_PASS belum disetel di Environment.');
+    console.error('[mailer] Kredensial SMTP_USER atau SMTP_PASS belum disetel di Environment!');
+    return null;
   }
 
-  // Gunakan preset service 'gmail' dengan port 465 (SSL)
-  return nodemailer.createTransport({
-    service: 'gmail',
+  // Bersihkan karakter spasi jika ada di App Password
+  const cleanPass = pass.replace(/\s+/g, '');
+
+  transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
-    secure: true, // WAJIB true untuk port 465
+    secure: true, // Port 465 WAJIB secure: true
     auth: {
       user: user,
-      pass: pass, // App Password 16 karakter tanpa spasi
+      pass: cleanPass,
     },
-    connectionTimeout: 10000, // Timeout 10 detik agar tidak menggantung lama
+    // Timeout cepat agar backend tidak menggantung (hang) jika port diblokir
+    connectionTimeout: 10000, // 10 detik
     greetingTimeout: 5000,
     socketTimeout: 10000,
   });
-};
 
   return transporter;
-}
+};
 
-// 1. Fungsi kirim Kode OTP
+// 1. Fungsi kirim Kode OTP (Registrasi)
 async function sendOtpEmail(to, otp) {
   const t = getTransporter();
   if (!t) {
-    console.error('[mailer] Konfigurasi SMTP_USER atau SMTP_PASS belum ada di Environment Variables!');
-    throw new Error('Layanan email belum dikonfigurasi di server.');
+    throw new Error('Layanan email belum dikonfigurasi di server (SMTP_USER/SMTP_PASS kosong).');
   }
 
   const fromName = process.env.SMTP_FROM_NAME || 'Toko Undangan Digital';
@@ -67,6 +72,7 @@ async function sendOtpEmail(to, otp) {
   return { sent: true };
 }
 
+// 2. Fungsi kirim Link Verifikasi (jika masih digunakan di tempat lain)
 async function sendVerificationEmail(to, name, verifyUrl) {
   const t = getTransporter();
   if (!t) {
