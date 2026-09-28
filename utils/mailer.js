@@ -4,43 +4,29 @@ require('dotenv').config();
 
 let transporter = null;
 
-function getTransporter() {
-  if (transporter) return transporter;
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    return null;
+const getTransporter = () => {
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!user || !pass) {
+    throw new Error('Kredensial SMTP_USER atau SMTP_PASS belum disetel di Environment.');
   }
 
-  // Jika memakai Gmail, cara paling stabil di cloud hosting adalah service: 'gmail'
-  // atau port 465 dengan secure: true
-  const isGmail = (process.env.SMTP_HOST || '').includes('gmail') || !process.env.SMTP_HOST;
-
-  if (isGmail) {
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS, // Wajib App Password 16 digit, bukan password biasa
-      },
-      connectionTimeout: 10000, // Maksimal 10 detik agar tidak loading selamanya
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    });
-  } else {
-    // Untuk penyedia SMTP lain
-    const port = Number(process.env.SMTP_PORT || 465);
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: port,
-      secure: port === 465, // true untuk 465
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    });
-  }
+  // Gunakan preset service 'gmail' dengan port 465 (SSL)
+  return nodemailer.createTransport({
+    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // WAJIB true untuk port 465
+    auth: {
+      user: user,
+      pass: pass, // App Password 16 karakter tanpa spasi
+    },
+    connectionTimeout: 10000, // Timeout 10 detik agar tidak menggantung lama
+    greetingTimeout: 5000,
+    socketTimeout: 10000,
+  });
+};
 
   return transporter;
 }
