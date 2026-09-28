@@ -1,11 +1,21 @@
 // utils/mailer.js
 require('dotenv').config();
 
-// 1. Fungsi Kirim OTP Registrasi via API HTTPS Brevo (Bisa kirim ke siapa saja tanpa beli domain)
-async function sendOtpEmail(to, otp) {
+// 1. Fungsi Kirim OTP Registrasi via API Brevo
+// Dibuat fleksibel agar bisa menerima (to, otp) maupun (to, name, otp)
+async function sendOtpEmail(to, nameOrOtp, maybeOtp) {
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.SENDER_EMAIL || 'akungaming549@gmail.com';
   const senderName = process.env.SMTP_FROM_NAME || 'Toko Undangan Digital';
+
+  // Jika dipanggil dengan 3 parameter (to, name, otp)
+  let recipientName = 'Pelanggan';
+  let otpCode = nameOrOtp;
+
+  if (maybeOtp !== undefined) {
+    recipientName = nameOrOtp || 'Pelanggan';
+    otpCode = maybeOtp;
+  }
 
   if (!apiKey) {
     console.error('[mailer] BREVO_API_KEY belum disetel di Environment Variables Render!');
@@ -27,15 +37,15 @@ async function sendOtpEmail(to, otp) {
       to: [
         { email: to }
       ],
-      subject: `Kode Verifikasi Pendaftaran: ${otp}`,
+      subject: `Kode Verifikasi Pendaftaran: ${otpCode}`,
       htmlContent: `
         <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #f1d5dc; border-radius: 12px; background-color: #fff9fa;">
           <h2 style="color: #b3435c; text-align: center; margin-top: 0;">Verifikasi Email Anda</h2>
-          <p style="color: #4b5563; font-size: 15px; line-height: 1.5;">Halo,</p>
+          <p style="color: #4b5563; font-size: 15px; line-height: 1.5;">Halo <strong>${recipientName}</strong>,</p>
           <p style="color: #4b5563; font-size: 15px; line-height: 1.5;">Terima kasih sudah mendaftar di <strong>Toko Undangan Digital</strong>. Masukkan 6 digit kode OTP berikut untuk mengaktifkan akun Anda:</p>
           
           <div style="background-color: #ffffff; border: 2px dashed #b3435c; border-radius: 8px; padding: 18px; text-align: center; margin: 24px 0;">
-            <span style="font-size: 34px; font-weight: bold; letter-spacing: 8px; color: #b3435c; display: inline-block;">${otp}</span>
+            <span style="font-size: 34px; font-weight: bold; letter-spacing: 8px; color: #b3435c; display: inline-block;">${otpCode}</span>
           </div>
           
           <p style="color: #6b7280; font-size: 13px; text-align: center; margin-bottom: 0;">
