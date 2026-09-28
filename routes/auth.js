@@ -33,9 +33,9 @@ async function dispatchVerificationEmail(user) {
   const verifyUrl = `${process.env.FRONTEND_URL}/verifikasi-email?token=${token}`;
   return sendVerificationEmail(user.email, user.name, verifyUrl);
 }
-
-// POST /api/auth/register
-router.post('/register', async (req, res) => {
+// POST /api/auth/register-request
+// Mengirim OTP dan menyimpan sementara (BELUM masuk ke tabel users)
+router.post('/register-request', async (req, res) => {
   try {
     const { name, email, password } = req.body;
     if (!name || !email || !password) {
@@ -45,29 +45,82 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Password minimal 6 karakter.' });
     }
 
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const cleanEmail = email.toLowerCase().trim();
+
+    // Pastikan belum terdaftar di tabel users resmi
+    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [cleanEmail]);
     if (existing.length > 0) {
       return res.status(409).json({ error: 'Email sudah terdaftar. Silakan masuk.' });
     }
 
+    // Buat kode OTP 6 digit acak
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // Berlaku 10 menit
     const hash = await bcrypt.hash(password, 10);
-    const [result] = await pool.query(
-      'INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)',
-      [name.trim(), email.toLowerCase().trim(), hash]
+
+    // Kirim email OTP TERLEBIH DAHULU
+    // Jika email ngawur / gagal kirim, proses langsung berhenti di sini
+    await sendOtpEmail(cleanEmail, name.trim(), otp);
+
+    // Simpan data SEMENTARA di pending_verifications
+    await pool.query(
+      `INSERT INTO pending_verifications (email, name, password_hash, otp, expires_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), password_hash = VALUES(password_hash), otp = VALUES(otp), expires_at = VALUES(expires_at)`,
+      [cleanEmail, name.trim(), hash, otp, expiresAt]
     );
 
-    const user = { id: result.insertId, name: name.trim(), email: email.toLowerCase().trim() };
-    const emailResult = await dispatchVerificationEmail(user);
-
-    res.status(201).json({
-      message: 'Pendaftaran berhasil! Silakan cek email Anda untuk memverifikasi akun sebelum bisa masuk.',
-      email_sent: emailResult.sent,
-    });
+    res.json({ message: 'Kode OTP telah dikirim ke email Anda. Silakan cek kotak masuk/spam.' });
   } catch (err) {
-    console.error('Register error:', err);
-    res.status(500).json({ error: 'Gagal mendaftar. Coba lagi nanti.' });
+    console.error('Register request error:', err);
+    res.status(500).json({ error: 'Gagal mengirim email verifikasi. Pastikan alamat email benar.' });
   }
 });
+
+// POST /api/auth/verify-otp
+// Cek OTP, jika benar BARU dimasukkan ke tabel users resmi
+router.post('/verify-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const cleanEmail = email.toLowerCase().trim();
+
+    const [rows] = await pool.query(
+      'SELECT * FROM pending_verifications WHERE email = ? AND otp = ?',
+      [cleanEmail, String(otp).trim()]
+    );
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Kode OTP salah atau email tidak cocok.' });
+    }
+
+    const pending = rows[0];
+    if (new Date(pending.expires_at) < new Date()) {
+      return res.status(400).json({ error: 'Kode OTP telah kedaluwarsa. Silakan daftar ulang.' });
+    }
+
+    // DISINI BARU INSERT RESMI KE TABEL USERS TIDB
+    const [result] = await pool.query(
+      'INSERT INTO users (name, email, password_hash, is_verified) VALUES (?, ?, ?, 1)',
+      [pending.name, pending.email, pending.password_hash]
+    );
+
+    // Hapus dari data sementara
+    await pool.query('DELETE FROM pending_verifications WHERE email = ?', [cleanEmail]);
+
+    const newUser = { id: result.insertId, name: pending.name, email: pending.email, is_admin: 0 };
+    const token = signToken(newUser);
+
+    res.status(201).json({
+      message: 'Akun berhasil diverifikasi dan terdaftar!',
+      token,
+      user: newUser,
+    });
+  } catch (err) {
+    console.error('Verify OTP error:', err);
+    res.status(500).json({ error: 'Gagal memverifikasi akun.' });
+  }
+});
+
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
