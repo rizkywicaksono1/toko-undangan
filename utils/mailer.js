@@ -1,28 +1,34 @@
 // utils/mailer.js
 require('dotenv').config();
 
-// 1. Fungsi Kirim OTP Registrasi via API HTTPS Resend (Anti-Blokir Render)
+// 1. Fungsi Kirim OTP Registrasi via API HTTPS Brevo (Bisa kirim ke siapa saja tanpa beli domain)
 async function sendOtpEmail(to, otp) {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = process.env.BREVO_API_KEY;
+  const senderEmail = process.env.SENDER_EMAIL || 'akungaming549@gmail.com';
+  const senderName = process.env.SMTP_FROM_NAME || 'Toko Undangan Digital';
 
   if (!apiKey) {
-    console.error('[mailer] RESEND_API_KEY belum disetel di Environment Variables Render!');
+    console.error('[mailer] BREVO_API_KEY belum disetel di Environment Variables Render!');
     throw new Error('Layanan email belum dikonfigurasi di server.');
   }
 
-  const fromEmail = process.env.EMAIL_FROM || 'Toko Undangan Digital <onboarding@resend.dev>';
-
-  const response = await fetch('https://api.resend.com/emails', {
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
+      'accept': 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json',
     },
     body: JSON.stringify({
-      from: fromEmail,
-      to: [to],
+      sender: {
+        name: senderName,
+        email: senderEmail,
+      },
+      to: [
+        { email: to }
+      ],
       subject: `Kode Verifikasi Pendaftaran: ${otp}`,
-      html: `
+      htmlContent: `
         <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #f1d5dc; border-radius: 12px; background-color: #fff9fa;">
           <h2 style="color: #b3435c; text-align: center; margin-top: 0;">Verifikasi Email Anda</h2>
           <p style="color: #4b5563; font-size: 15px; line-height: 1.5;">Halo,</p>
@@ -44,35 +50,42 @@ async function sendOtpEmail(to, otp) {
   const data = await response.json();
 
   if (!response.ok) {
-    console.error('[mailer] Resend Error:', data);
-    throw new Error(data.message || 'Gagal mengirim email OTP');
+    console.error('[mailer] Brevo Error:', data);
+    throw new Error(data.message || 'Gagal mengirim email OTP via Brevo');
   }
 
-  console.log('[mailer] Email OTP berhasil dikirim:', data.id);
+  console.log('[mailer] Email OTP berhasil dikirim via Brevo. Message ID:', data.messageId);
   return { sent: true, data };
 }
 
 // 2. Fungsi Kirim Link Verifikasi
 async function sendVerificationEmail(to, name, verifyUrl) {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = process.env.BREVO_API_KEY;
+  const senderEmail = process.env.SENDER_EMAIL || 'akungaming549@gmail.com';
+  const senderName = process.env.SMTP_FROM_NAME || 'Toko Undangan Digital';
+
   if (!apiKey) {
-    return { sent: false, reason: 'RESEND_API_KEY belum dikonfigurasi' };
+    return { sent: false, reason: 'BREVO_API_KEY belum dikonfigurasi' };
   }
 
-  const fromEmail = process.env.EMAIL_FROM || 'Toko Undangan Digital <onboarding@resend.dev>';
-
   try {
-    const response = await fetch('https://api.resend.com/emails', {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+        'accept': 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json',
       },
       body: JSON.stringify({
-        from: fromEmail,
-        to: [to],
+        sender: {
+          name: senderName,
+          email: senderEmail,
+        },
+        to: [
+          { email: to }
+        ],
         subject: 'Verifikasi Email Anda - Toko Undangan Digital',
-        html: `
+        htmlContent: `
           <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #b3435c;">Halo, ${name}!</h2>
             <p>Terima kasih sudah mendaftar di Toko Undangan Digital. Klik tautan berikut untuk memverifikasi akun Anda:</p>
