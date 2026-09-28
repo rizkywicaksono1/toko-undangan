@@ -1,4 +1,4 @@
-// utils/mailer.js — pengirim email lewat SMTP
+// utils/mailer.js
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 
@@ -6,27 +6,51 @@ let transporter = null;
 
 function getTransporter() {
   if (transporter) return transporter;
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    return null; // Belum dikonfigurasi
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    return null;
   }
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT) === 465, // true untuk port 465, false untuk 587/lainnya
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+
+  // Jika memakai Gmail, cara paling stabil di cloud hosting adalah service: 'gmail'
+  // atau port 465 dengan secure: true
+  const isGmail = (process.env.SMTP_HOST || '').includes('gmail') || !process.env.SMTP_HOST;
+
+  if (isGmail) {
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS, // Wajib App Password 16 digit, bukan password biasa
+      },
+      connectionTimeout: 10000, // Maksimal 10 detik agar tidak loading selamanya
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
+  } else {
+    // Untuk penyedia SMTP lain
+    const port = Number(process.env.SMTP_PORT || 465);
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: port,
+      secure: port === 465, // true untuk 465
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
+  }
+
   return transporter;
 }
 
-// 1. Fungsi kirim Kode OTP (untuk alur verifikasi pendaftaran baru)
+// 1. Fungsi kirim Kode OTP
 async function sendOtpEmail(to, otp) {
   const t = getTransporter();
   if (!t) {
-    console.warn(`[mailer] SMTP belum dikonfigurasi. Kode OTP untuk ${to}: ${otp}`);
-    throw new Error('Layanan email belum dikonfigurasi di server (SMTP).');
+    console.error('[mailer] Konfigurasi SMTP_USER atau SMTP_PASS belum ada di Environment Variables!');
+    throw new Error('Layanan email belum dikonfigurasi di server.');
   }
 
   const fromName = process.env.SMTP_FROM_NAME || 'Toko Undangan Digital';
@@ -57,11 +81,9 @@ async function sendOtpEmail(to, otp) {
   return { sent: true };
 }
 
-// 2. Fungsi kirim Link Verifikasi (opsional, tetap disimpan jika dibutuhkan)
 async function sendVerificationEmail(to, name, verifyUrl) {
   const t = getTransporter();
   if (!t) {
-    console.warn(`[mailer] SMTP belum dikonfigurasi. Link verifikasi untuk ${to}: ${verifyUrl}`);
     return { sent: false, reason: 'SMTP belum dikonfigurasi' };
   }
 
@@ -91,7 +113,6 @@ async function sendVerificationEmail(to, name, verifyUrl) {
   return { sent: true };
 }
 
-// Export kedua fungsi agar bisa dipakai di routes mana pun
 module.exports = {
   sendOtpEmail,
   sendVerificationEmail,
